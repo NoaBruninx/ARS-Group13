@@ -25,6 +25,11 @@ WALLS = [ #x, y, width, height -> from walls in frame
     (800, 450, 200, 5),  
 ]
 
+NUM_SENSORS = 12
+SENSOR_ANGLE_STEP = 360 / NUM_SENSORS
+MAX_SENSOR_DISTANCE = 200
+font = pygame.font.SysFont(None, 16)
+
 def circle_rect_collision(cx, cy, radius, rx, ry, rw, rh):
     # Find closest point on rect to circle
     closest_x = max(rx, min(cx, rx + rw))
@@ -46,7 +51,96 @@ def draw_walls(screen):
 
     pygame.draw.line(screen, BLACK, (800, 200), (800, 700), 5)
     pygame.draw.line(screen, BLACK, (800, 450), (1000, 450), 5)
-    
+
+def get_wall_segments():
+    segments = []
+    for (x, y, w, h) in WALLS:
+        segments.append((x, y, x+w, y))       # top
+        segments.append((x, y, x, y+h))       # left
+        segments.append((x+w, y, x+w, y+h))   # right
+        segments.append((x, y+h, x+w, y+h))   # bottom
+
+    segments.append((0, 0, WIDTH, 0))         # top
+    segments.append((WIDTH, 0, WIDTH, HEIGHT)) # right
+    segments.append((WIDTH, HEIGHT, 0, HEIGHT)) # bottom
+    segments.append((0, HEIGHT, 0, 0))        # left
+    return segments
+
+def line_intersection(
+        line1_x1, line1_y1, line1_x2, line1_y2,
+        line2_x1, line2_y1, line2_x2, line2_y2
+):
+    # Calculate denominator to check if lines are parallel
+    denominator = (line1_x1 - line1_x2) * (line2_y1 - line2_y2) -(line1_y1 - line1_y2) * (line2_x1 - line2_x2)
+    if denominator == 0:
+        return None  # Lines are parallel or overlapping
+
+    # Calculate where the intersection happens along each line
+    t = ((line1_x1 - line2_x1) * (line2_y1 - line2_y2) -(line1_y1 - line2_y1) * (line2_x1 - line2_x2)) / denominator
+
+    u = -((line1_x1 - line1_x2) * (line1_y1 - line2_y1) - (line1_y1 - line1_y2) * (line1_x1 - line2_x1)) / denominator
+
+    # Check if intersection is within both line segments
+    if 0 <= t <= 1 and 0 <= u <= 1:
+        intersection_x = line1_x1 + t * (line1_x2 - line1_x1)
+        intersection_y = line1_y1 + t * (line1_y2 - line1_y1)
+        return intersection_x, intersection_y
+
+    return None
+
+def get_sensor_readings(circle_x, circle_y):
+    sensor_distances = []
+    wall_segments = get_wall_segments()
+
+    for sensor_index in range(NUM_SENSORS):
+        # Calculate sensor angle
+        angle_degrees = sensor_index * SENSOR_ANGLE_STEP
+        angle_radians = math.radians(angle_degrees)
+
+        # End point of the sensor ray
+        sensor_end_x = circle_x + math.cos(angle_radians) * MAX_SENSOR_DISTANCE
+        sensor_end_y = circle_y + math.sin(angle_radians) * MAX_SENSOR_DISTANCE
+
+        # Start with max distance (no wall detected yet)
+        closest_distance = MAX_SENSOR_DISTANCE
+
+        # Check intersection with each wall segment
+        for (wall_x1, wall_y1, wall_x2, wall_y2) in wall_segments:
+            intersection = line_intersection(
+                circle_x, circle_y,
+                sensor_end_x, sensor_end_y,
+                wall_x1, wall_y1,
+                wall_x2, wall_y2
+            )
+
+            if intersection:
+                hit_x, hit_y = intersection
+
+                distance_to_wall = math.sqrt(
+                    (hit_x - circle_x) ** 2 +
+                    (hit_y - circle_y) ** 2
+                )
+
+                # Keep the closest wall hit
+                if distance_to_wall < closest_distance:
+                    closest_distance = distance_to_wall
+
+        sensor_distances.append(closest_distance)
+
+    return sensor_distances
+
+def draw_sensor_values(screen, cx, cy, readings):
+    for i, dist in enumerate(readings):
+        angle = math.radians(i * SENSOR_ANGLE_STEP)
+
+        # Position where the text SHOULD be centered
+        pos_x = cx + math.cos(angle) * (CIRCLE_RADIUS + 20)
+        pos_y = cy + math.sin(angle) * (CIRCLE_RADIUS + 20)
+
+        text = font.render(str(int(dist)), True, (0, 0, 0))
+        text_rect = text.get_rect(center=(pos_x, pos_y))  # 👈 FIX
+
+        screen.blit(text, text_rect)
 
 def main():
     # Initialize circle position
@@ -87,6 +181,9 @@ def main():
 
         draw_walls(screen)
         pygame.draw.circle(screen, RED, (circle_x, circle_y), CIRCLE_RADIUS)
+
+        sensor_readings = get_sensor_readings(circle_x, circle_y)
+        draw_sensor_values(screen, circle_x, circle_y, sensor_readings)
 
         pygame.display.flip()
         pygame.time.Clock().tick(60)
