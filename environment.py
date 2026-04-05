@@ -14,7 +14,8 @@ BLACK = (0, 0, 0)
 
 CIRCLE_RADIUS = 25
 CIRCLE_SPEED = 5
-MARGIN = 5
+ROTATION_SPEED = 5 
+MARGIN = 30
 
 WALLS = [ #x, y, width, height -> from walls in frame
     (200, 100, 5, 500),  
@@ -29,19 +30,6 @@ NUM_SENSORS = 12
 SENSOR_ANGLE_STEP = 360 / NUM_SENSORS
 MAX_SENSOR_DISTANCE = 200
 font = pygame.font.SysFont(None, 16)
-
-def circle_rect_collision(cx, cy, radius, rx, ry, rw, rh):
-    # Find closest point on rect to circle
-    closest_x = max(rx, min(cx, rx + rw))
-    closest_y = max(ry, min(cy, ry + rh))
-    distance = math.sqrt((cx - closest_x)**2 + (cy - closest_y)**2)
-    return distance < radius
-
-def check_collision(cx, cy, radius):
-    for obs in WALLS:
-        if circle_rect_collision(cx, cy, radius, *obs):
-            return True
-    return False
 
 def draw_walls(screen):
     pygame.draw.line(screen, BLACK, (200, 100), (200, 600), 5)  
@@ -88,14 +76,14 @@ def line_intersection(
 
     return None
 
-def get_sensor_readings(circle_x, circle_y):
+def get_sensor_readings(circle_x, circle_y, angle_degrees):
     sensor_distances = []
     wall_segments = get_wall_segments()
 
     for sensor_index in range(NUM_SENSORS):
-        # Calculate sensor angle
-        angle_degrees = sensor_index * SENSOR_ANGLE_STEP
-        angle_radians = math.radians(angle_degrees)
+        # Calculate sensor angle relative to robot orientation
+        angle_degrees_rel = angle_degrees + sensor_index * SENSOR_ANGLE_STEP
+        angle_radians = math.radians(angle_degrees_rel)
 
         # End point of the sensor ray
         sensor_end_x = circle_x + math.cos(angle_radians) * MAX_SENSOR_DISTANCE
@@ -129,23 +117,43 @@ def get_sensor_readings(circle_x, circle_y):
 
     return sensor_distances
 
-def draw_sensor_values(screen, cx, cy, readings):
-    for i, dist in enumerate(readings):
-        angle = math.radians(i * SENSOR_ANGLE_STEP)
+def is_forward_blocked(sensors):
+    front = sensors[0:3] + sensors[9:12]  # S0, S1, S2, S9, S10, S11
+    return any(dist <= MARGIN for dist in front)
+
+def is_backward_blocked(sensors):
+    back = sensors[4:9]  # S4, S5, S6, S7, S8
+    return any(dist <= MARGIN for dist in back)
+
+
+def draw_sensor_values(screen, cx, cy, sensors, angle_degrees):
+    for i, dist in enumerate(sensors):
+        angle = math.radians(angle_degrees + i * SENSOR_ANGLE_STEP)
 
         # Position where the text SHOULD be centered
         pos_x = cx + math.cos(angle) * (CIRCLE_RADIUS + 20)
         pos_y = cy + math.sin(angle) * (CIRCLE_RADIUS + 20)
 
         text = font.render(str(int(dist)), True, (0, 0, 0))
-        text_rect = text.get_rect(center=(pos_x, pos_y))  # 👈 FIX
+        text_rect = text.get_rect(center=(pos_x, pos_y)) 
 
         screen.blit(text, text_rect)
 
+def draw_robot(screen, cx, cy, angle_degrees):
+    pygame.draw.circle(screen, RED, (int(cx), int(cy)), CIRCLE_RADIUS)
+
+    # Draw orientation line showing the robot's pose
+    radians = math.radians(angle_degrees)
+    line_end_x = cx + math.cos(radians) * (CIRCLE_RADIUS)
+    line_end_y = cy + math.sin(radians) * (CIRCLE_RADIUS)
+    pygame.draw.line(screen, BLACK, (int(cx), int(cy)), (int(line_end_x), int(line_end_y)), 3)
+
+
 def main():
-    # Initialize circle position
+    # Initialize circle position and orientation
     circle_x = WIDTH // 2
     circle_y = HEIGHT // 2
+    angle_degrees = 0
     running = True
     while running:
         # Handle events
@@ -156,34 +164,41 @@ def main():
         # Get state of all keys
         keys = pygame.key.get_pressed()
 
-        # Move circle based on arrow keys
-        new_x = circle_x
-        new_y = circle_y
+        # Rotate left/right to change pose
         if keys[pygame.K_LEFT]:
-            new_x -= CIRCLE_SPEED
+            angle_degrees = (angle_degrees - ROTATION_SPEED) % 360
         if keys[pygame.K_RIGHT]:
-            new_x += CIRCLE_SPEED
-        if keys[pygame.K_UP]:
-            new_y -= CIRCLE_SPEED
-        if keys[pygame.K_DOWN]:
-            new_y += CIRCLE_SPEED
+            angle_degrees = (angle_degrees + ROTATION_SPEED) % 360
 
-        # Check collision with obstacles
-        if not check_collision(new_x, new_y, CIRCLE_RADIUS + MARGIN):
-            circle_x = new_x
-            circle_y = new_y
+        # Move forward/backward based on current orientation
+        move_dx = 0
+        move_dy = 0
+        sensor_readings = get_sensor_readings(circle_x, circle_y, angle_degrees)
+
+        if keys[pygame.K_UP]:
+            if not is_forward_blocked(sensor_readings):
+                move_dx += math.cos(math.radians(angle_degrees)) * CIRCLE_SPEED
+                move_dy += math.sin(math.radians(angle_degrees)) * CIRCLE_SPEED
+
+        if keys[pygame.K_DOWN]:
+            if not is_backward_blocked(sensor_readings):
+                move_dx -= math.cos(math.radians(angle_degrees)) * CIRCLE_SPEED
+                move_dy -= math.sin(math.radians(angle_degrees)) * CIRCLE_SPEED
+
+        new_x = circle_x + move_dx
+        new_y = circle_y + move_dy
 
         # Keep circle within screen bounds with margin
-        circle_x = max(CIRCLE_RADIUS + MARGIN, min(WIDTH - CIRCLE_RADIUS - MARGIN, circle_x))
-        circle_y = max(CIRCLE_RADIUS + MARGIN, min(HEIGHT - CIRCLE_RADIUS - MARGIN, circle_y))
+        circle_x = max(CIRCLE_RADIUS + MARGIN, min(WIDTH - CIRCLE_RADIUS - MARGIN, new_x))
+        circle_y = max(CIRCLE_RADIUS + MARGIN, min(HEIGHT - CIRCLE_RADIUS - MARGIN, new_y))
 
         screen.fill(WHITE)
 
         draw_walls(screen)
-        pygame.draw.circle(screen, RED, (circle_x, circle_y), CIRCLE_RADIUS)
+        draw_robot(screen, circle_x, circle_y, angle_degrees)
 
-        sensor_readings = get_sensor_readings(circle_x, circle_y)
-        draw_sensor_values(screen, circle_x, circle_y, sensor_readings)
+        # Reuse sensor readings from movement logic for drawing
+        draw_sensor_values(screen, circle_x, circle_y, sensor_readings, angle_degrees)
 
         pygame.display.flip()
         pygame.time.Clock().tick(60)
