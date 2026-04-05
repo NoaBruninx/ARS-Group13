@@ -54,6 +54,36 @@ def get_wall_segments():
     segments.append((0, HEIGHT, 0, 0))        # left
     return segments
 
+
+def normalize_angle(angle):
+    while angle < 0:
+        angle += 360
+    while angle >= 360:
+        angle -= 360
+    return angle
+
+def angle_difference(a, b):
+    diff = abs(a - b)
+    if diff > 180:
+        diff = 360 - diff
+    return diff
+
+def is_direction_blocked(sensors, robot_angle, target_angle, half_width=90):
+    for i, dist in enumerate(sensors):
+        sensor_angle = normalize_angle(robot_angle + i * SENSOR_ANGLE_STEP)
+        if angle_difference(sensor_angle, target_angle) <= half_width and dist <= MARGIN:
+            return True
+    return False
+
+def can_move_in_direction(sensors, robot_angle, dx, dy):
+    if dx == 0 and dy == 0:
+        return False
+
+    target_angle = math.degrees(math.atan2(dy, dx))
+    target_angle = normalize_angle(target_angle)
+
+    return not is_direction_blocked(sensors, robot_angle, target_angle, half_width=45)
+
 def line_intersection(
         line1_x1, line1_y1, line1_x2, line1_y2,
         line2_x1, line2_y1, line2_x2, line2_y2
@@ -117,15 +147,6 @@ def get_sensor_readings(circle_x, circle_y, angle_degrees):
 
     return sensor_distances
 
-def is_forward_blocked(sensors):
-    front = sensors[0:3] + sensors[9:12]  # S0, S1, S2, S9, S10, S11
-    return any(dist <= MARGIN for dist in front)
-
-def is_backward_blocked(sensors):
-    back = sensors[4:9]  # S4, S5, S6, S7, S8
-    return any(dist <= MARGIN for dist in back)
-
-
 def draw_sensor_values(screen, cx, cy, sensors, angle_degrees):
     for i, dist in enumerate(sensors):
         angle = math.radians(angle_degrees + i * SENSOR_ANGLE_STEP)
@@ -176,21 +197,26 @@ def main():
         sensor_readings = get_sensor_readings(circle_x, circle_y, angle_degrees)
 
         if keys[pygame.K_UP]:
-            if not is_forward_blocked(sensor_readings):
-                move_dx += math.cos(math.radians(angle_degrees)) * CIRCLE_SPEED
-                move_dy += math.sin(math.radians(angle_degrees)) * CIRCLE_SPEED
+            move_dx += math.cos(math.radians(angle_degrees)) * CIRCLE_SPEED
+            move_dy += math.sin(math.radians(angle_degrees)) * CIRCLE_SPEED
 
         if keys[pygame.K_DOWN]:
-            if not is_backward_blocked(sensor_readings):
-                move_dx -= math.cos(math.radians(angle_degrees)) * CIRCLE_SPEED
-                move_dy -= math.sin(math.radians(angle_degrees)) * CIRCLE_SPEED
+            move_dx -= math.cos(math.radians(angle_degrees)) * CIRCLE_SPEED
+            move_dy -= math.sin(math.radians(angle_degrees)) * CIRCLE_SPEED
 
-        new_x = circle_x + move_dx
-        new_y = circle_y + move_dy
+        if move_dx != 0 or move_dy != 0:
+            if can_move_in_direction(sensor_readings, angle_degrees, move_dx, move_dy):
+                circle_x += move_dx
+                circle_y += move_dy
+            else:
+                if move_dx != 0 and can_move_in_direction(sensor_readings, angle_degrees, move_dx, 0):
+                    circle_x += move_dx
+                if move_dy != 0 and can_move_in_direction(sensor_readings, angle_degrees, 0, move_dy):
+                    circle_y += move_dy
 
         # Keep circle within screen bounds with margin
-        circle_x = max(CIRCLE_RADIUS + MARGIN, min(WIDTH - CIRCLE_RADIUS - MARGIN, new_x))
-        circle_y = max(CIRCLE_RADIUS + MARGIN, min(HEIGHT - CIRCLE_RADIUS - MARGIN, new_y))
+        circle_x = max(CIRCLE_RADIUS + MARGIN, min(WIDTH - CIRCLE_RADIUS - MARGIN, circle_x))
+        circle_y = max(CIRCLE_RADIUS + MARGIN, min(HEIGHT - CIRCLE_RADIUS - MARGIN, circle_y))
 
         screen.fill(WHITE)
 
