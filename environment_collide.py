@@ -67,18 +67,18 @@ INTERNAL_WALLS = [
     # (550, 550, 550, 650),
 ]
 
+ALL_WALL_SEGMENTS = None 
 
 def get_wall_segments():
- 
-    segments = list(INTERNAL_WALLS)
-    # Outer boundary
-    segments += [
-        (0,      0,      WIDTH, 0     ),   # top
-        (WIDTH,  0,      WIDTH, HEIGHT),   # right
-        (WIDTH,  HEIGHT, 0,     HEIGHT),   # bottom
-        (0,      HEIGHT, 0,     0     ),   # left
-    ]
-    return segments
+    global ALL_WALL_SEGMENTS
+    if ALL_WALL_SEGMENTS is None:
+        ALL_WALL_SEGMENTS = list(INTERNAL_WALLS) + [
+            (0,      0,      WIDTH, 0     ),   # top
+            (WIDTH,  0,      WIDTH, HEIGHT),   # right
+            (WIDTH,  HEIGHT, 0,     HEIGHT),   # bottom
+            (0,      HEIGHT, 0,     0     ),   # left
+        ]
+    return ALL_WALL_SEGMENTS
 
 
 def draw_walls(surface):
@@ -160,18 +160,22 @@ def get_sensor_readings(cx, cy, theta):
 
     for i in range(NUM_SENSORS):
         angle = theta + i * SENSOR_ANGLE_STEP
+        # Sensor start point (at robot edge)
+        sx = cx + math.cos(angle) * CIRCLE_RADIUS
+        sy = cy + math.sin(angle) * CIRCLE_RADIUS
+        
         # Ray endpoint (far end)
         ex = cx + math.cos(angle) * MAX_SENSOR_DISTANCE
         ey = cy + math.sin(angle) * MAX_SENSOR_DISTANCE
 
-        closest_dist = MAX_SENSOR_DISTANCE
+        closest_dist = MAX_SENSOR_DISTANCE - CIRCLE_RADIUS
         closest_pt   = (ex, ey)
 
         for (wx1, wy1, wx2, wy2) in wall_segs:
-            pt = line_segment_intersection(cx, cy, ex, ey,
+            pt = line_segment_intersection(sx, sy, ex, ey,
                                            wx1, wy1, wx2, wy2)
             if pt is not None:
-                d = math.hypot(pt[0] - cx, pt[1] - cy)
+                d = math.hypot(pt[0] - sx, pt[1] - sy)
                 if d < closest_dist:
                     closest_dist = d
                     closest_pt   = pt
@@ -236,14 +240,27 @@ def resolve_collisions(x, y, dx, dy, substeps=12):
             # No collision, move freely
             new_x, new_y = trial_x, trial_y
             continue
-        #2 X only
-        trial_x = new_x + step_dx
-        if not collides_at_position(trial_x, new_y):
-            new_x = trial_x
-        #3 Y only
-        trial_y = new_y + step_dy
-        if not collides_at_position(new_x, trial_y):
-            new_y = trial_y
+        
+        
+        best_dist = float('inf')
+        best_nx, best_ny = 0.0, 0.0
+        for (ax,ay,bx,by) in get_wall_segments():
+            dist, nx, ny = point_to_segment_distance_and_normal(new_x, new_y, ax, ay, bx, by)
+            if dist < best_dist:
+                best_dist = dist
+                best_nx ,best_ny = nx, ny
+        dot = step_dx * best_nx + step_dy * best_ny
+        
+        slide_dx = step_dx - dot * best_nx
+        slide_dy = step_dy - dot * best_ny
+        
+        trial_x = new_x + slide_dx
+        trial_y = new_y + slide_dy
+        
+        
+        if not collides_at_position(trial_x, trial_y):
+            new_x, new_y = trial_x, trial_y
+      
             
     # Clamp to stay within bounds (accounting for robot radius and a small margin)
     new_x = max(CIRCLE_RADIUS + 2, min(WIDTH  - CIRCLE_RADIUS - 2, new_x))
@@ -263,19 +280,23 @@ def draw_robot(surface, cx, cy, theta):
     pygame.draw.line(surface, BLACK,
                      (int(cx), int(cy)), (int(hx), int(hy)), 3)
 
+
 # Draw sensor rays and distance values
 def draw_sensors(surface, cx, cy, theta, distances, hit_points):
     
     for i, (dist, pt) in enumerate(zip(distances, hit_points)):
         angle = theta + i * SENSOR_ANGLE_STEP
-        # Thin gray ray
-        ex = cx + math.cos(angle) * dist
-        ey = cy + math.sin(angle) * dist
+        
+        # Sensor start point (at robot edge)
+        sx = cx + math.cos(angle) * CIRCLE_RADIUS
+        sy = cy + math.sin(angle) * CIRCLE_RADIUS
+        
+        
         pygame.draw.line(surface, GRAY,
-                         (int(cx), int(cy)), (int(ex), int(ey)), 1)
+                         (int(sx), int(sy)), (int(pt[0]), int(pt[1])), 1)
         # Distance label near the tip
-        label_x = cx + math.cos(angle) * (dist + 14)
-        label_y = cy + math.sin(angle) * (dist + 14)
+        label_x = pt[0] + math.cos(angle) * 14
+        label_y = pt[1] + math.sin(angle) * 14
         txt = font_small.render(str(int(dist)), True, BLUE)
         rect = txt.get_rect(center=(int(label_x), int(label_y)))
         surface.blit(txt, rect)
