@@ -365,12 +365,12 @@ def main():
             v_right -= LINEAR_SPEED
         if keys[pygame.K_LEFT]:
             # Rotate left: right wheel faster
-            v_left  -= LINEAR_SPEED * 0.5
-            v_right += LINEAR_SPEED * 0.5
-        if keys[pygame.K_RIGHT]:
-            # Rotate right: left wheel faster
             v_left  += LINEAR_SPEED * 0.5
             v_right -= LINEAR_SPEED * 0.5
+        if keys[pygame.K_RIGHT]:
+            # Rotate right: left wheel faster
+            v_left  -= LINEAR_SPEED * 0.5
+            v_right += LINEAR_SPEED * 0.5
 
         #   Velocity-based motion model            
         v, omega = wheel_speeds_to_v_omega(v_left, v_right)
