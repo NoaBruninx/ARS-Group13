@@ -28,6 +28,7 @@ PURPULE = (160,  32, 240)
 #   Robot parameters 
 CIRCLE_RADIUS   = 18          # pixels  (physical body radius)
 LINEAR_SPEED    = 80.0        # pixels/second  (forward speed)
+KIDNAP_THRESHOLD = 150  # Distance threshold to know if covariance reset is needed
 
 
 #  Sensor parameters 
@@ -445,6 +446,13 @@ def kalman_update(mu_bar, sigma_bar, observation):
         innovation = z - z_hat
         innovation[1] = (innovation[1] + math.pi) % (2 * math.pi) - math.pi # Normalize angle to [-pi, pi]
         
+        # Kidnap detection: big difference = reset covariance
+        if abs(innovation[0]) > KIDNAP_THRESHOLD:
+            sigma = np.eye(3) * 50000.0
+            mu[0] = lx - z_dist * math.cos(z_bearing + mu[2])
+            mu[1] = ly - z_dist * math.sin(z_bearing + mu[2])
+            continue
+
         mu = mu + K @ innovation
         sigma = (np.eye(3) - K @ C) @ sigma
     return mu, sigma
@@ -514,6 +522,15 @@ def main():
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     running = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_t:
+                        # Teleport robot to rnadom position (kidnap)
+                        robot_x = random.uniform(50, WIDTH - 50)
+                        robot_y = random.uniform(50, HEIGHT - 50)
+                        robot_theta = random.uniform(0, 2 * math.pi)
+
+                        trajectory_actual.clear()
+                        trajectory_estimated.clear()
 
         #   Keyboard → wheel speeds              
         keys = pygame.key.get_pressed()
