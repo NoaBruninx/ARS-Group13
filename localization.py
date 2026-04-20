@@ -446,9 +446,10 @@ def kalman_update(mu_bar, sigma_bar, observation):
         innovation = z - z_hat
         innovation[1] = (innovation[1] + math.pi) % (2 * math.pi) - math.pi # Normalize angle to [-pi, pi]
         
-        # Kidnap detection: big difference = reset covariance
+        # Kidnap detection: big difference in expected vs observed distance
         if abs(innovation[0]) > KIDNAP_THRESHOLD:
-            sigma = np.eye(3) * 50000.0
+            sigma = np.eye(3) * 50000.0 # Very high uncertainty
+            #reinitialize mean to be near the observed landmark (with some noise), leave heading unchanged
             mu[0] = lx - z_dist * math.cos(z_bearing + mu[2])
             mu[1] = ly - z_dist * math.sin(z_bearing + mu[2])
             continue
