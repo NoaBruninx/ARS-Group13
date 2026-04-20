@@ -156,6 +156,14 @@ def update_pose_velocity_model(x, y, theta, v, omega, dt):
 
     return x_new, y_new, theta_new % (2 * math.pi)
 
+def teleport_valid_location(max_tries=1000):
+    for _ in range(max_tries):
+        x = random.uniform(CIRCLE_RADIUS + 2, WIDTH - CIRCLE_RADIUS - 2)
+        y = random.uniform(CIRCLE_RADIUS + 2, HEIGHT - CIRCLE_RADIUS - 2)
+        theta = random.uniform(0, 2 * math.pi)
+        if not collides_at_position(x, y):
+            return x, y, theta
+    return 100.0, 400.0, 0.0
 
 
 #  SENSOR MODEL  –  12 distance sensors (line intersection)
@@ -526,10 +534,7 @@ def main():
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_t:
                         # Teleport robot to rnadom position (kidnap)
-                        robot_x = random.uniform(50, WIDTH - 50)
-                        robot_y = random.uniform(50, HEIGHT - 50)
-                        robot_theta = random.uniform(0, 2 * math.pi)
-
+                        robot_x, robot_y, robot_theta = teleport_valid_location()
                         trajectory_actual.clear()
                         trajectory_estimated.clear()
 
