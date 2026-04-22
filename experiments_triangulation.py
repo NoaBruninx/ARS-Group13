@@ -9,7 +9,7 @@ MOTION_NOISE_STD  = 2.0
 SENSOR_NOISE_STD  = 5.0
 BEARING_NOISE_STD = 0.05
 
-# Custom landmark layout: clustered for controlled 0/1/2/3 visibility
+# Custom landmark layout
 EXP_LANDMARKS = [
     (300, 300),   
     (200, 200),   
@@ -44,9 +44,7 @@ DT      = 1 / 30.0
 #  Motion and sensor model functions 
 
 def update_true_pose(rx, ry, rth, v, omega, dt):
-    """True robot motion: exact velocity model, no noise.
-    The KF's R matrix is a design parameter (conservative uncertainty estimate),
-    not a model of actual physical noise on the true trajectory."""
+    """True robot motion: exact velocity model, no noise."""
     if abs(omega) < 1e-6:
         rx_new  = rx + v * math.cos(rth) * dt
         ry_new  = ry + v * math.sin(rth) * dt
@@ -60,7 +58,6 @@ def update_true_pose(rx, ry, rth, v, omega, dt):
 
 
 def get_obs(cx, cy, theta):
-    """Noisy (landmark_idx, distance, bearing) for landmarks in range."""
     obs = []
     for i, (lx, ly) in enumerate(EXP_LANDMARKS):
         dist = math.hypot(lx - cx, ly - cy)
