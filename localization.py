@@ -82,9 +82,10 @@ LANDMARKS = [
 LANDMARKS_RANGE = 200  # Max distance at which landmarks are detected (pixels)
 
 #NOISE PARAMETERS
-MOTION_NOISE_STD = 2       # MATRIX R - Standard deviation of noise added to motion (pixels) 
-SENSOR_NOISE_STD = 5.0     # MATRIX Q - Standard deviation of noise added to sensor readings (pixels)
-BEARING_NOISE_STD = 0.05   # Standard deviation of noise added
+NOISE_FACTOR = 3
+MOTION_NOISE_STD = 2*NOISE_FACTOR       # MATRIX R - Standard deviation of noise added to motion (pixels)
+SENSOR_NOISE_STD = 5.0*NOISE_FACTOR     # MATRIX Q - Standard deviation of noise added to sensor readings (pixels)
+BEARING_NOISE_STD = 0.05*NOISE_FACTOR   # Standard deviation of noise added
 
 # Kalman Filter parameters 
 
@@ -507,7 +508,7 @@ def main():
 
     # Initial pose  (start in the upper-left open area)
     robot_x     = 100.0
-    robot_y     = 400.0
+    robot_y     = 200.0
     robot_theta = 0.0      # radians, 0 = facing right
     
     # Kalman Filter state - initial guess (same as true pose, but with high uncertainty)
