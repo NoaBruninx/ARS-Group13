@@ -1,8 +1,8 @@
 """
 compare_genomes.py
-مقایسه سریع baseline vs evolved بدون نیاز به pygame.
+Headless comparison between baseline and evolved genome.
 
-اجرا:
+Run:
     python compare_genomes.py
 """
 
@@ -12,14 +12,14 @@ from pathlib import Path
 from controller import Genome
 from evolution import evaluate_genome
 
-STEPS = 1800   # تعداد قدم‌های شبیه‌سازی (~30 ثانیه)
-SEEDS = [1, 2, 3]  # چند seed مختلف برای مقایسه منصفانه
+STEPS = 1800   # simulation steps per episode
+SEEDS = [1, 2, 3]  # multiple seeds for a fair comparison
 
 
 def load_evolved() -> Genome:
     path = Path("results/best_genome.json")
     if not path.exists():
-        print("هیچ genome evolved پیدا نشد. فقط baseline اجرا می‌شود.")
+        print("No evolved genome found. Running baseline only.")
         return None
     data = json.loads(path.read_text(encoding="utf-8"))
     defaults = Genome().to_dict()
@@ -58,35 +58,37 @@ def main():
     if evolved:
         results.append(run_condition(evolved, "Evolved genome", SEEDS))
 
-    print("\n" + "=" * 55)
-    print(f"{'متریک':<28} {'Baseline':>12} {'Evolved':>12}")
-    print("=" * 55)
+    e = results[1] if len(results) > 1 else None
+
+    print("\n" + "=" * 60)
+    print(f"{'Metric':<30} {'Baseline':>14} {'Evolved':>14}")
+    print("=" * 60)
     metrics = [
         ("Fitness (mean ± std)",
          f"{results[0]['fitness_mean']:.0f} ± {results[0]['fitness_std']:.0f}",
-         f"{results[1]['fitness_mean']:.0f} ± {results[1]['fitness_std']:.0f}" if len(results) > 1 else "—"),
+         f"{e['fitness_mean']:.0f} ± {e['fitness_std']:.0f}" if e else "—"),
         ("Rescued victims (mean ± std)",
          f"{results[0]['rescued_mean']:.1f} ± {results[0]['rescued_std']:.1f}",
-         f"{results[1]['rescued_mean']:.1f} ± {results[1]['rescued_std']:.1f}" if len(results) > 1 else "—"),
+         f"{e['rescued_mean']:.1f} ± {e['rescued_std']:.1f}" if e else "—"),
         ("Explored fraction",
          f"{results[0]['explored_mean']:.3f}",
-         f"{results[1]['explored_mean']:.3f}" if len(results) > 1 else "—"),
+         f"{e['explored_mean']:.3f}" if e else "—"),
         ("Collisions",
          f"{results[0]['collisions_mean']:.1f}",
-         f"{results[1]['collisions_mean']:.1f}" if len(results) > 1 else "—"),
+         f"{e['collisions_mean']:.1f}" if e else "—"),
         ("Mean localization error (px)",
          f"{results[0]['loc_error_mean']:.1f}",
-         f"{results[1]['loc_error_mean']:.1f}" if len(results) > 1 else "—"),
+         f"{e['loc_error_mean']:.1f}" if e else "—"),
     ]
-    for name, b, e in metrics:
-        print(f"{name:<28} {b:>12} {e:>12}")
-    print("=" * 55)
+    for name, b, ev in metrics:
+        print(f"{name:<30} {b:>14} {ev:>14}")
+    print("=" * 60)
 
-    # ذخیره نتیجه
+    # Save results
     out = Path("results/genome_comparison.json")
     out.parent.mkdir(exist_ok=True)
     out.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"\nنتایج در {out} ذخیره شد.")
+    print(f"\nResults saved to {out}")
 
 
 if __name__ == "__main__":
