@@ -85,6 +85,10 @@ class Genome:
     unknown_area_weight: float = 0.9
     corridor_switching_weight: float = 4.0
 
+    # Pheromone parameters
+    pheromone_decay: float = 0.999
+    pheromone_penalty_weight: float = 5000.0
+
     @staticmethod
     def random(rng: random.Random) -> "Genome":
         return Genome(
@@ -99,6 +103,8 @@ class Genome:
             corridor_following_weight=rng.uniform(0.0, 3.0),
             unknown_area_weight=rng.uniform(0.1, 4.0),
             corridor_switching_weight=rng.uniform(0.0, 4.0),
+            pheromone_decay=rng.uniform(0.97, 0.9999),
+            pheromone_penalty_weight=rng.uniform(500.0, 12000.0),
         )
 
     def mutate(self, rng: random.Random, sigma: float = 0.10) -> "Genome":
@@ -114,6 +120,8 @@ class Genome:
             "corridor_following_weight": (0.0, 4.0),
             "unknown_area_weight": (0.0, 5.0),
             "corridor_switching_weight": (0.0, 5.0),
+            "pheromone_decay": (0.97, 0.9999),
+            "pheromone_penalty_weight": (500.0, 12000.0),
         }
         data = asdict(self)
         for key, (lo, hi) in ranges.items():
@@ -172,9 +180,9 @@ class SearchRescueController:
     def control(self, robot, grid, world, robots, rng: random.Random):
         """Return linear and angular velocity commands (v, w)."""
 
-        x, y, th = robot.true_pose
-        grid.deposit_pheromone(x, y, grid.pheromone_deposit)
         x, y, th = robot.ekf.mu
+        grid.pheromone_decay = self.g.pheromone_decay
+        grid.deposit_pheromone(x, y, grid.pheromone_deposit)
 
 
         # -------------------------------
@@ -629,7 +637,7 @@ class SearchRescueController:
                      - 0.45 * lateral_bonus
                      - 1.3 * cross_corridor_bonus
                      - 1.5 * unvisited_bonus
-                     - 5000 * pheromone_penalty)
+                     - self.g.pheromone_penalty_weight * pheromone_penalty)
             if best is None or score < best[0]:
                 best = (score, d, heading, (fx, fy))
 

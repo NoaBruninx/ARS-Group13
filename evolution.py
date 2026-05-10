@@ -57,9 +57,9 @@ def make_robots(genome: Genome, seed: int, one_robot: bool = False) -> List[Robo
         return [Robot(1, "rescue", (995, 600, -math.pi / 2), genome, PURPLE, rng.randint(0, 10_000_000))]
 
     return [
-        Robot(1, "scout", (90, 120, math.pi / 2), genome, BLUE, rng.randint(0, 10_000_000)),
+        Robot(1, "scout",  (90,  120, math.pi / 2),  genome, BLUE,   rng.randint(0, 10_000_000)),
         Robot(2, "rescue", (995, 600, -math.pi / 2), genome, PURPLE, rng.randint(0, 10_000_000)),
-    ]
+        ]
 
 
 def merge_metrics_from_maps(maps: List[OccupancyGrid]) -> float:
@@ -81,7 +81,7 @@ def evaluate_genome(
     cell_size: int = 20,
 ) -> EvalResult:
     """Run one simulation episode and compute fitness."""
-    world = SearchRescueWorld(dynamic_block=dynamic_block)
+    world = SearchRescueWorld(dynamic_block=dynamic_block, seed=seed)
     robots = make_robots(genome, seed=seed, one_robot=one_robot)
 
     if shared_map:
@@ -92,7 +92,6 @@ def evaluate_genome(
 
     localization_errors = []
     close_together_count = 0
-    pair_count = max(1, len(robots) - 1)
 
     for step in range(steps):
         if dynamic_block and step == steps // 2:
@@ -101,6 +100,10 @@ def evaluate_genome(
         for i, robot in enumerate(robots):
             robot.update(world, maps[i], robots, DT)
             localization_errors.append(robot.localization_error())
+
+        for m in {id(m): m for m in maps}.values():
+            m.decay_pheromones()
+            m.spread_pheromones()
 
         if len(robots) > 1:
             if distance((robots[0].true_pose[0], robots[0].true_pose[1]),
