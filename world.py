@@ -1,20 +1,13 @@
-"""
-world.py
-Search-and-rescue world, geometry helpers, ray casting, and drawing.
-
-Scenario: Search and Rescue / damaged building.
-The map represents a damaged building with rooms, corridors, rubble piles,
-fixed landmarks for EKF-SLAM, hidden victims, and an optional collapsed passage.
-"""
-
 from __future__ import annotations
 
 import math
+import random
+from collections import deque
 from typing import List, Optional, Tuple
 
 try:
     import pygame
-except ImportError:  # Allows non-visual experiment runs to import this file.
+except ImportError:
     pygame = None
 
 
@@ -23,15 +16,14 @@ except ImportError:  # Allows non-visual experiment runs to import this file.
 # ---------------------------------------------------------------------
 
 WIDTH, HEIGHT = 1100, 700
-FPS = 240
-DT = 4 / FPS
+FPS = 60
+DT = 1.0 / FPS
 
 ROBOT_RADIUS = 14.0
 NUM_SENSORS = 12
 MAX_SENSOR_RANGE = 190.0
 SENSOR_REL_ANGLES = [2.0 * math.pi * i / NUM_SENSORS for i in range(NUM_SENSORS)]
 
-# Colors
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 GRAY = (100, 100, 100)
@@ -49,7 +41,6 @@ KNOWN_FLOOR = (245, 250, 242)
 RUBBLE = (210, 120, 40)
 DANGER_RED = (180, 65, 55)
 
-
 Point = Tuple[float, float]
 Segment = Tuple[Point, Point]
 RectTuple = Tuple[float, float, float, float]
@@ -59,13 +50,11 @@ RectTuple = Tuple[float, float, float, float]
 # Geometry helpers
 # ---------------------------------------------------------------------
 
-
 def clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
 
 def wrap_angle(a: float) -> float:
-    """Wrap angle to [-pi, pi)."""
     return (a + math.pi) % (2.0 * math.pi) - math.pi
 
 
@@ -111,7 +100,6 @@ def rect_to_segments(rect: RectTuple) -> List[Segment]:
 
 
 def ray_segment_intersection(origin: Point, angle: float, a: Point, b: Point) -> Optional[Tuple[float, float, float]]:
-    """Return (distance, ix, iy) if a ray intersects a segment; otherwise None."""
     ox, oy = origin
     dx, dy = math.cos(angle), math.sin(angle)
     ax, ay = a
@@ -131,33 +119,31 @@ def ray_segment_intersection(origin: Point, angle: float, a: Point, b: Point) ->
     return None
 
 
-# ---------------------------------------------------------------------
-# Search-and-rescue world
-# ---------------------------------------------------------------------
-
-
 class SearchRescueWorld:
-    """A simple 2D damaged-building layout.
+    """Randomized search-and-rescue world with reachable random victims."""
 
-    Static obstacles are internal walls, collapsed rubble, and blocked rooms.
-    Victim locations are hidden target points. Landmarks are known beacon
-    positions used for EKF-SLAM correction.
-    """
-
-    def __init__(self, dynamic_block: bool = False):
+    def __init__(
+        self,
+        dynamic_block: bool = False,
+        seed: Optional[int] = None,
+        num_victims: int = 15,
+    ):
         self.dynamic_block_enabled = dynamic_block
         self.blockage_active = False
+        self.seed = seed
+        self.rng = random.Random(seed)
+        self.num_victims = num_victims
 
         self.outer_walls: List[Segment] = []
         self.obstacle_rects: List[RectTuple] = []
         self.dynamic_blocks: List[RectTuple] = []
         self.walls: List[Segment] = []
 
-        # Victim dictionaries are updated during simulation.
-        self.victims = []
-        # Backward-compatible alias so older helper code still works if needed.
+        self.victims: List[dict] = []
         self.plants = self.victims
         self.landmarks: List[Point] = []
+
+        self.start_hint: Point = (95, 100)
         self.build()
 
     def build(self) -> None:
@@ -169,60 +155,254 @@ class SearchRescueWorld:
             ((margin, HEIGHT - margin), (margin, margin)),
         ]
 
-        # Damaged building layout: collapsed internal walls / rubble barriers.
-        # The barriers create long corridors and several cross-passages, so the
-        # robots have to explore, map, and switch between rooms. This keeps the
-        # navigation challenging but still reliable for the demo.
-        self.obstacle_rects = [
-            # Each wall line is split into three rubble segments.
-            # The two horizontal gaps create cross-corridors between rooms.
-            (180, 90, 50, 105), (180, 320, 50, 80), (180, 525, 50, 85),
-            (340, 90, 50, 105), (340, 320, 50, 80), (340, 525, 50, 85),
-            (500, 90, 50, 105), (500, 320, 50, 80), (500, 525, 50, 85),
-            (660, 90, 50, 105), (660, 320, 50, 80), (660, 525, 50, 85),
-            (820, 90, 50, 105), (820, 320, 50, 80), (820, 525, 50, 85),
-        ]
-
-        # Optional collapsed passage. It is only inserted when activated.
-        self.dynamic_blocks = []
-
-        # Hidden victims are in rooms/corridors, not inside obstacles.
-        victim_positions = [
-            (95, 130), (290, 165), (450, 125), (625, 155), (790, 130), (985, 155),
-            (100, 350), (285, 365), (455, 345), (615, 365), (790, 345), (985, 365),
-            (95, 585), (285, 585), (455, 580), (620, 585), (790, 575), (985, 585),
-        ]
-        self.victims = [
-            {"id": i, "pos": p, "detected": False, "rescued": False}
-            for i, p in enumerate(victim_positions)
-        ]
-        self.plants = self.victims  # keep alias synchronized
-
-        # Sparse beacon-like landmarks used by EKF-SLAM.
         self.landmarks = [
             (70, 70), (1030, 70), (70, 630), (1030, 630),
             (285, 75), (445, 625), (605, 75), (765, 625), (975, 75),
             (285, 350), (605, 350), (975, 350),
         ]
+
+        self.dynamic_blocks = []
+        self.blockage_active = False
+        self.victims = []
+        self.plants = self.victims
+
+        self._generate_random_map()
+
+        victim_positions = self._generate_random_victim_positions(self.num_victims)
+        self.victims = [
+            {"id": i, "pos": p, "detected": False, "rescued": False}
+            for i, p in enumerate(victim_positions)
+        ]
+        self.plants = self.victims
+
+        if self.dynamic_block_enabled and self.rng.random() < 0.5:
+            self.activate_dynamic_blockage()
+
         self.rebuild_segments()
+
+    def regenerate(self) -> None:
+        self.blockage_active = False
+        self.build()
+
+    def _generate_random_map(self, max_tries: int = 250) -> None:
+        for _ in range(max_tries):
+            candidate = self._make_random_obstacles()
+            if self._start_has_reachable_space(candidate):
+                self.obstacle_rects = candidate
+                return
+        raise RuntimeError("Could not generate a valid random map.")
+
+    def _start_has_reachable_space(self, rects: List[RectTuple]) -> bool:
+        reachable = self._reachable_cells(rects, [])
+        return len(reachable) >= max(80, self.num_victims * 6)
+
+    def _make_random_obstacles(self) -> List[RectTuple]:
+        rects: List[RectTuple] = []
+
+        x_positions = [180, 340, 500, 660, 820]
+        wall_w = 50
+
+        for x in x_positions:
+            y_min, y_max = 90, 610
+
+            possible_gaps = [
+                (205, 315),
+                (400, 520),
+            ]
+            if self.rng.random() < 0.5:
+                g0 = self.rng.randint(120, 170)
+                g1 = self.rng.randint(180, 235)
+                if g1 > g0:
+                    possible_gaps.append((g0, g1))
+            if self.rng.random() < 0.5:
+                g0 = self.rng.randint(540, 565)
+                g1 = self.rng.randint(585, 610)
+                if g1 > g0:
+                    possible_gaps.append((g0, g1))
+
+            possible_gaps.sort()
+            gaps: List[List[int]] = []
+            for g0, g1 in possible_gaps:
+                g0, g1 = max(y_min, g0), min(y_max, g1)
+                if g1 - g0 < 35:
+                    continue
+                if not gaps or g0 > gaps[-1][1]:
+                    gaps.append([g0, g1])
+                else:
+                    gaps[-1][1] = max(gaps[-1][1], g1)
+
+            current = y_min
+            for g0, g1 in gaps:
+                if g0 - current >= 35:
+                    rects.append((x, current, wall_w, g0 - current))
+                current = g1
+            if y_max - current >= 35:
+                rects.append((x, current, wall_w, y_max - current))
+
+        extra_blocks = self.rng.randint(3, 8)
+        attempts = 0
+        while extra_blocks > 0 and attempts < 300:
+            attempts += 1
+            rw = self.rng.randint(30, 70)
+            rh = self.rng.randint(30, 70)
+            rx = self.rng.randint(80, WIDTH - 80 - rw)
+            ry = self.rng.randint(80, HEIGHT - 80 - rh)
+            rect = (rx, ry, rw, rh)
+
+            if self._rect_is_safe_to_place(rect, rects):
+                rects.append(rect)
+                extra_blocks -= 1
+
+        return rects
+
+    def _rect_is_safe_to_place(self, rect: RectTuple, existing: List[RectTuple]) -> bool:
+        rx, ry, rw, rh = rect
+
+        protected_points = [self.start_hint] + self.landmarks
+
+        inflated = (rx - 20, ry - 20, rw + 40, rh + 40)
+        for px, py in protected_points:
+            if point_in_rect(px, py, inflated):
+                return False
+
+        for other in existing:
+            ox, oy, ow, oh = other
+            overlaps = not (
+                rx + rw < ox - 15 or
+                ox + ow < rx - 15 or
+                ry + rh < oy - 15 or
+                oy + oh < ry - 15
+            )
+            if overlaps:
+                return False
+
+        return True
+
+    def _reachable_cells(self, obstacle_rects: List[RectTuple], dynamic_rects: List[RectTuple]) -> List[Tuple[int, int]]:
+        cell = 20
+        cols = WIDTH // cell
+        rows = HEIGHT // cell
+
+        def cell_center(cx: int, cy: int) -> Point:
+            return (cx * cell + cell / 2, cy * cell + cell / 2)
+
+        blocked = [[False for _ in range(rows)] for _ in range(cols)]
+
+        for cx in range(cols):
+            for cy in range(rows):
+                wx, wy = cell_center(cx, cy)
+
+                if wx < 40 + ROBOT_RADIUS or wx > WIDTH - 40 - ROBOT_RADIUS:
+                    blocked[cx][cy] = True
+                    continue
+                if wy < 40 + ROBOT_RADIUS or wy > HEIGHT - 40 - ROBOT_RADIUS:
+                    blocked[cx][cy] = True
+                    continue
+
+                for rect in obstacle_rects + dynamic_rects:
+                    if circle_intersects_rect(wx, wy, ROBOT_RADIUS + 4, rect):
+                        blocked[cx][cy] = True
+                        break
+
+        sx = int(self.start_hint[0] // cell)
+        sy = int(self.start_hint[1] // cell)
+        sx = max(0, min(cols - 1, sx))
+        sy = max(0, min(rows - 1, sy))
+
+        if blocked[sx][sy]:
+            return []
+
+        q = deque([(sx, sy)])
+        seen = {(sx, sy)}
+
+        while q:
+            cx, cy = q.popleft()
+            for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                if 0 <= nx < cols and 0 <= ny < rows and not blocked[nx][ny] and (nx, ny) not in seen:
+                    seen.add((nx, ny))
+                    q.append((nx, ny))
+
+        return list(seen)
+
+    def _generate_random_victim_positions(self, count: int = 15) -> List[Point]:
+        cell = 20
+
+        def cell_center(cell_pos: Tuple[int, int]) -> Point:
+            cx, cy = cell_pos
+            return (cx * cell + cell / 2, cy * cell + cell / 2)
+
+        reachable_cells = self._reachable_cells(self.obstacle_rects, self.dynamic_blocks)
+        if not reachable_cells:
+            raise RuntimeError("No reachable free area found for victim placement.")
+
+        candidate_points: List[Point] = []
+        for rc in reachable_cells:
+            p = cell_center(rc)
+
+            if distance(p, self.start_hint) < 45:
+                continue
+            if any(distance(p, lm) < 28 for lm in self.landmarks):
+                continue
+            if self.collides(p[0], p[1], radius=20):
+                continue
+
+            candidate_points.append(p)
+
+        self.rng.shuffle(candidate_points)
+
+        chosen: List[Point] = []
+        for p in candidate_points:
+            if any(distance(p, other) < 45 for other in chosen):
+                continue
+            chosen.append(p)
+            if len(chosen) >= count:
+                return chosen
+
+        raise RuntimeError("Could not place all random victims on reachable free cells.")
+
+    def _all_victims_reachable_with_dynamic(self, candidate_dynamic: List[RectTuple]) -> bool:
+        cell = 20
+
+        def point_to_cell(p: Point) -> Tuple[int, int]:
+            cx = int(p[0] // cell)
+            cy = int(p[1] // cell)
+            return cx, cy
+
+        seen = set(self._reachable_cells(self.obstacle_rects, candidate_dynamic))
+        if not seen:
+            return False
+
+        for victim in self.victims:
+            if point_to_cell(victim["pos"]) not in seen:
+                return False
+        return True
 
     def reset_victims(self) -> None:
         for victim in self.victims:
             victim["detected"] = False
             victim["rescued"] = False
 
-    # Backward-compatible name used in older experiments.
     def reset_plants(self) -> None:
         self.reset_victims()
 
     def activate_dynamic_blockage(self) -> None:
-        """Collapse one corridor section to test adaptation to map changes."""
         if self.blockage_active:
             return
-        self.blockage_active = True
-        # A small rubble block that closes a doorway/corridor section.
-        self.dynamic_blocks.append((575, 315, 90, 60))
-        self.rebuild_segments()
+
+        possible_blocks = [
+            (575, 315, 90, 60),
+            (255, 315, 70, 60),
+            (735, 315, 70, 60),
+        ]
+        self.rng.shuffle(possible_blocks)
+
+        for block in possible_blocks:
+            candidate_dynamic = self.dynamic_blocks + [block]
+            if self._all_victims_reachable_with_dynamic(candidate_dynamic):
+                self.dynamic_blocks.append(block)
+                self.blockage_active = True
+                self.rebuild_segments()
+                return
 
     def rebuild_segments(self) -> None:
         self.walls = list(self.outer_walls)
@@ -247,11 +427,9 @@ class SearchRescueWorld:
         return best_d, end, hit
 
     def collides(self, x: float, y: float, radius: float = ROBOT_RADIUS) -> bool:
-        # Outer boundaries.
         if x < 40 + radius or x > WIDTH - 40 - radius or y < 40 + radius or y > HEIGHT - 40 - radius:
             return True
 
-        # Internal walls, rubble, and dynamic blockages.
         for rect in self.obstacle_rects + self.dynamic_blocks:
             if circle_intersects_rect(x, y, radius, rect):
                 return True
@@ -263,7 +441,6 @@ class SearchRescueWorld:
             return None
         return min(candidates, key=lambda v: distance(pos, v["pos"]))
 
-    # Backward-compatible name used in older helper code.
     def nearest_uncared_plant(self, pos: Point) -> Optional[dict]:
         return self.nearest_unrescued_victim(pos)
 
@@ -273,20 +450,10 @@ class SearchRescueWorld:
     def num_rescued(self) -> int:
         return sum(1 for v in self.victims if v["rescued"])
 
-    # Backward-compatible name used in older helper code.
     def num_cared(self) -> int:
         return self.num_rescued()
 
     def draw(self, screen, grid=None, show_ground_truth: bool = False) -> None:
-        """Draw either the full world or only the discovered part of the world.
-
-        Normal assignment mode uses ``grid`` and hides all cells that have not
-        received sensor evidence yet. This gives the intended behaviour: the
-        damaged-building map starts unknown and is revealed only by robot motion.
-
-        ``show_ground_truth=True`` is only a debug/recording option. It draws
-        the complete building layout and should not be used as the main demo.
-        """
         if pygame is None:
             return
 
@@ -296,7 +463,6 @@ class SearchRescueWorld:
             self._draw_discovered_world(screen, grid)
 
     def _draw_full_world(self, screen) -> None:
-        """Debug view: draw complete damaged-building ground truth."""
         pygame.draw.rect(screen, KNOWN_FLOOR, (40, 40, WIDTH - 80, HEIGHT - 80))
 
         for rect in self.obstacle_rects:
@@ -318,12 +484,9 @@ class SearchRescueWorld:
             self._draw_victim(screen, victim)
 
     def _draw_discovered_world(self, screen, grid) -> None:
-        """Assignment view: draw only cells that the robots have observed."""
         pygame.draw.rect(screen, UNKNOWN_DARK, (40, 40, WIDTH - 80, HEIGHT - 80))
         pygame.draw.rect(screen, BLACK, (40, 40, WIDTH - 80, HEIGHT - 80), 3)
 
-        # Reveal only cells that have sensor evidence. We use the ground-truth
-        # geometry only to color already observed cells for visualization.
         for cy in range(grid.rows):
             for cx in range(grid.cols):
                 if not grid.is_cell_known(cx, cy):
@@ -338,14 +501,11 @@ class SearchRescueWorld:
                     color = DANGER_RED
                 pygame.draw.rect(screen, color, rect)
 
-        # Draw landmarks only after their cell has been observed.
         for lm in self.landmarks:
             if grid.is_point_known(lm[0], lm[1]):
                 pygame.draw.circle(screen, BLACK, (int(lm[0]), int(lm[1])), 5)
                 pygame.draw.circle(screen, CYAN, (int(lm[0]), int(lm[1])), 8, 1)
 
-        # Draw victims only after discovery/rescue. This avoids revealing all
-        # target locations at time zero.
         for victim in self.victims:
             if victim["detected"] or victim["rescued"]:
                 self._draw_victim(screen, victim)
@@ -360,10 +520,8 @@ class SearchRescueWorld:
             color = ORANGE
         pygame.draw.circle(screen, color, (int(x), int(y)), 10)
         pygame.draw.circle(screen, BLACK, (int(x), int(y)), 10, 1)
-        # Small cross makes victims visually different from simple landmarks.
         pygame.draw.line(screen, BLACK, (int(x - 5), int(y)), (int(x + 5), int(y)), 1)
         pygame.draw.line(screen, BLACK, (int(x), int(y - 5)), (int(x), int(y + 5)), 1)
 
 
-# Backward compatibility: older imports still work, but the scenario is now search-and-rescue.
 GreenhouseWorld = SearchRescueWorld
