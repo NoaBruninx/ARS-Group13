@@ -171,8 +171,35 @@ class SearchRescueController:
 
     def control(self, robot, grid, world, robots, rng: random.Random):
         """Return linear and angular velocity commands (v, w)."""
+
+        x, y, th = robot.true_pose
+        grid.deposit_pheromone(x, y, grid.pheromone_deposit)
         x, y, th = robot.ekf.mu
 
+
+        # -------------------------------
+        # -------------------------------
+        if robot.role == "rescue":
+            sensed = robot.detect_victim_from_sensors(world)
+
+            if sensed is not None:
+                heading, d = sensed
+
+                # use EKF pose only for control consistency
+                x, y, th = robot.ekf.mu
+
+                # compute steering direction
+                heading_error = wrap_angle(heading - th)
+
+                # angular velocity toward victim
+                w = clamp(self.g.turn_speed * heading_error,
+                          -self.g.turn_speed,
+                          self.g.turn_speed)
+
+                # move faster when farther, slower when close
+                v = self.g.forward_speed * clamp(d / 120.0, 0.2, 1.0)
+
+                return v, w
         # Update systematic coverage tracking
         self._update_zone_tracking(robot, world)
 
@@ -234,7 +261,6 @@ class SearchRescueController:
         corridor_switch_vec = self._corridor_switching_vector(robot)
         visited_vec = self._visited_victim_repulsion_vector(robot, world)
         zone_vec = self._zone_coverage_vector(robot, grid)
-
         # Role-dependent scaling
         if robot.role == "scout":
             role_victim = 0.45
@@ -253,7 +279,7 @@ class SearchRescueController:
                 role_frontier = 0.1
                 role_zone = 0.0
                 # Force rescue to head directly to nearest victim
-                x, y, th = robot.ekf.mu
+
                 nearest = min(unrescued, key=lambda v: distance((x, y), v["pos"]))
                 nx, ny = nearest["pos"]
                 if distance((x, y), (nx, ny)) > 30.0:
@@ -307,6 +333,7 @@ class SearchRescueController:
         turn_risk = clamp(abs(heading_error) / 1.6, 0.0, 1.0)
         speed_factor = clamp(1.0 - 0.65 * obstacle_risk - 0.45 * turn_risk, 0.18, 1.0)
         v = self.g.forward_speed * speed_factor
+
         return v, w
 
     # ------------------------------------------------------------------
@@ -420,12 +447,19 @@ class SearchRescueController:
         for i, ax in enumerate(CORRIDOR_X_POSITIONS):
             unexplored = 0
             total_cells = 0
+            pheromone_sum = 0.0
+
             for ay in range(80, HEIGHT - 80, 40):
                 cx, cy = grid.world_to_cell(ax, ay)
                 if grid.in_bounds(cx, cy):
                     total_cells += 1
+
                     if not grid.is_cell_known(cx, cy):
                         unexplored += 1
+
+                    # NEW: pheromone influence
+                    wx, wy = grid.cell_to_world(cx, cy)
+                    pheromone_sum += grid.get_pheromone(wx, wy)
             unexplored_ratio = unexplored / total_cells if total_cells > 0 else 1.0
             d = abs(ax - x)
             score = unexplored_ratio * 1.5 - d / 600.0
@@ -580,6 +614,7 @@ class SearchRescueController:
                 continue
             if not self._point_roughly_visible(robot, (fx, fy), margin=30.0):
                 continue
+
             heading = math.atan2(fy - y, fx - x)
             angle_penalty = abs(wrap_angle(heading - th))
             lateral_bonus = min(abs(fx - x), 260.0)
@@ -588,10 +623,13 @@ class SearchRescueController:
             zone_idx = min(range(len(CORRIDOR_X_POSITIONS)),
                            key=lambda i: abs(CORRIDOR_X_POSITIONS[i] - fx))
             unvisited_bonus = 120.0 if zone_idx not in self.visited_zones else 0.0
+            pheromone_penalty = grid.get_pheromone(fx, fy)
+            print(pheromone_penalty)
             score = (0.70 * d + 90.0 * angle_penalty
                      - 0.45 * lateral_bonus
                      - 1.3 * cross_corridor_bonus
-                     - 1.5 * unvisited_bonus)
+                     - 1.5 * unvisited_bonus
+                     - 5000 * pheromone_penalty)
             if best is None or score < best[0]:
                 best = (score, d, heading, (fx, fy))
 

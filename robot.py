@@ -199,6 +199,41 @@ class Robot:
 
     def localization_error(self) -> float:
         return self.ekf.position_error(self.true_pose)
+    def detect_victim_from_sensors(self, world):
+        x, y, th = self.true_pose
+
+        best = None
+        best_dist = float("inf")
+
+        for victim in world.victims:
+            #only allow already discovered victims
+            if victim["rescued"] or not victim["detected"]:
+                continue
+
+            vx, vy = victim["pos"]
+            d = distance((x, y), (vx, vy))
+
+            if d > MAX_SENSOR_RANGE:
+                continue
+
+            ang_to_v = math.atan2(vy - y, vx - x)
+
+            for i, endpoint in enumerate(self.sensor_endpoints):
+                rel_angle = SENSOR_REL_ANGLES[i]
+                ray_angle = th + rel_angle
+
+                if abs(wrap_angle(ray_angle - ang_to_v)) < 0.12:
+
+                    ray_dist = self.sensor_distances[i]
+
+                    if d <= ray_dist:
+                        if d < best_dist:
+                            best_dist = d
+                            best = (ang_to_v, d)
+
+                    break
+
+        return best
 
     def draw(self, screen, world=None, show_trajectories: bool = True, show_sensors: bool = True) -> None:
         if pygame is None:
@@ -272,3 +307,5 @@ def draw_text(screen, text: str, x: int, y: int, color, size: int = 18) -> None:
     if size not in _FONT_CACHE:
         _FONT_CACHE[size] = pygame.font.SysFont("Arial", size)
     screen.blit(_FONT_CACHE[size].render(str(text), True, color), (x, y))
+
+

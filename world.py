@@ -23,8 +23,8 @@ except ImportError:  # Allows non-visual experiment runs to import this file.
 # ---------------------------------------------------------------------
 
 WIDTH, HEIGHT = 1100, 700
-FPS = 60
-DT = 1.0 / FPS
+FPS = 240
+DT = 4 / FPS
 
 ROBOT_RADIUS = 14.0
 NUM_SENSORS = 12

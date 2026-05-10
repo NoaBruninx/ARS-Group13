@@ -63,6 +63,82 @@ class OccupancyGrid:
         self.evidence = np.zeros((self.rows, self.cols), dtype=np.int16)
         # Persistent "ever seen" mask so explored_fraction never decreases.
         self._ever_seen = np.zeros((self.rows, self.cols), dtype=bool)
+        self.pheromone = np.zeros((self.height, self.width), dtype=float)
+        self.pheromone_decay = 0.999
+        self.pheromone_deposit = 1
+        self.max_pheromone = 99999
+
+    def get_pheromone(self, x: float, y: float) -> float:
+        cx, cy = self.world_to_cell(x, y)
+
+        if not self.in_bounds(cx, cy):
+            return 0.0
+
+        return float(self.pheromone[cy, cx])
+    def deposit_pheromone(self, x: float, y: float, amount: float = 5):
+        cx, cy = self.world_to_cell(x, y)
+
+        if not self.in_bounds(cx, cy):
+            return
+
+        self.pheromone[cy, cx] += amount
+
+        # clamp to prevent runaway hotspots
+        if self.pheromone[cy, cx] > self.max_pheromone:
+            self.pheromone[cy, cx] = self.max_pheromone
+
+    def spread_pheromones(self, diffusion_rate: float = 0.0015):
+        """
+        Diffuse pheromones to neighboring cells (4-neighbour smoothing).
+        This creates realistic spreading trails instead of only point deposits.
+        """
+
+        p = self.pheromone
+
+        # shifted versions (fast convolution-like diffusion)
+        up    = np.roll(p, -1, axis=0)
+        down  = np.roll(p,  1, axis=0)
+        left  = np.roll(p, -1, axis=1)
+        right = np.roll(p,  1, axis=1)
+
+        # average neighbors
+        neighbors = (up + down + left + right) * 0.25
+
+        # diffusion step
+        self.pheromone = (1 - diffusion_rate) * p + diffusion_rate * neighbors
+
+        # optional: keep bounds stable
+        np.clip(self.pheromone, 0.0, self.max_pheromone, out=self.pheromone)
+    def decay_pheromones(self):
+        self.pheromone *= self.pheromone_decay
+
+    def pheromone_gradient(self, x: float, y: float):
+        cx, cy = self.world_to_cell(x, y)
+
+        if not self.in_bounds(cx, cy):
+            return (0.0, 0.0)
+
+        def v(a, b):
+            if self.in_bounds(a, b):
+                return self.pheromone[b, a]
+            return self.pheromone[cy, cx]
+
+        # Sobel-style smoothing (stable vs 4-neighbor noise)
+        gx = (
+                v(cx + 1, cy - 1) + 2 * v(cx + 1, cy) + v(cx + 1, cy + 1)
+                - v(cx - 1, cy - 1) - 2 * v(cx - 1, cy) - v(cx - 1, cy + 1)
+        )
+
+        gy = (
+                v(cx - 1, cy + 1) + 2 * v(cx, cy + 1) + v(cx + 1, cy + 1)
+                - v(cx - 1, cy - 1) - 2 * v(cx, cy - 1) - v(cx + 1, cy - 1)
+        )
+
+        norm = math.hypot(gx, gy)
+        if norm < 1e-9:
+            return (0.0, 0.0)
+
+        return gx / norm, gy / norm
 
     def world_to_cell(self, x: float, y: float) -> Tuple[int, int]:
         return int(x // self.cell_size), int(y // self.cell_size)

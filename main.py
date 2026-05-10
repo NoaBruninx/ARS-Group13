@@ -93,6 +93,8 @@ def create_simulation(genome: Genome, seed: int = 7):
     robots = [
         Robot(1, "scout", (90, 120, math.pi / 2), genome, BLUE, rng.randint(0, 10_000_000)),
         Robot(2, "rescue", (995, 600, -math.pi / 2), genome, PURPLE, rng.randint(0, 10_000_000)),
+        Robot(3, "scout", (995, 120, math.pi / 2), genome, BLUE, rng.randint(0, 10_000_000)),
+        Robot(4, "scout", (90, 600, -math.pi / 2), genome, PURPLE, rng.randint(0, 10_000_000)),
     ]
     return world, grid, robots
 
@@ -130,6 +132,7 @@ def main() -> None:
     show_trajectories = True
     show_sensors = True
     show_ground_truth = False
+    show_pheromones = False
     mission_complete = False
     running = True
     step = 0
@@ -145,6 +148,8 @@ def main() -> None:
                     running = False
                 elif event.key == pygame.K_SPACE:
                     paused = not paused
+                elif event.key == pygame.K_p:
+                    show_pheromones = not show_pheromones
                 elif event.key == pygame.K_m:
                     show_map = not show_map
                 elif event.key == pygame.K_t:
@@ -171,6 +176,8 @@ def main() -> None:
         if not paused:
             for robot in robots:
                 robot.update(world, grid, robots, DT)
+            grid.decay_pheromones()
+            grid.spread_pheromones()
             step += 1
             sim_time += DT
 
@@ -189,6 +196,8 @@ def main() -> None:
         world.draw(screen, grid=grid, show_ground_truth=show_ground_truth)
         if show_map:
             grid.draw(screen)
+        if show_pheromones:
+            draw_pheromone_heatmap(screen, grid)
         for robot in robots:
             robot.draw(screen, world=world, show_trajectories=show_trajectories, show_sensors=show_sensors)
         draw_hud(screen, world, grid, robots, paused)
@@ -218,6 +227,103 @@ def main() -> None:
     logger.close()
     pygame.quit()
 
+def draw_pheromone_heatmap(screen, grid):
+    import pygame
+    import math
 
+    cell_size = grid.cell_size
+    pher = grid.pheromone
+
+    # --- compute smoothed max (prevents flickering) ---
+    max_val = getattr(grid, "_pher_max_cache", 1.0)
+    grid._pher_max_tick = getattr(grid, "_pher_max_tick", 0) + 1
+
+    if grid._pher_max_tick > 25:
+        local_max = 1e-6
+        for row in pher:
+            for v in row:
+                if v > local_max:
+                    local_max = v
+
+        # exponential smoothing (important improvement)
+        max_val = 0.85 * max_val + 0.15 * local_max
+        grid._pher_max_cache = max_val
+        grid._pher_max_tick = 0
+
+    max_val = max(max_val, 1e-6)
+
+    # --- color helper (blue → green → yellow → red) ---
+    def pher_color(t):
+        t = max(0.0, min(1.0, t))
+
+        if t < 0.33:
+            # blue → green
+            r = 0
+            g = int(255 * (t / 0.33))
+            b = 255 - g
+        elif t < 0.66:
+            # green → yellow
+            t2 = (t - 0.33) / 0.33
+            r = int(255 * t2)
+            g = 255
+            b = 0
+        else:
+            # yellow → red
+            t2 = (t - 0.66) / 0.34
+            r = 255
+            g = int(255 * (1.0 - t2))
+            b = 0
+
+        return (r, g, b)
+
+    # --- draw ---
+    for i, row in enumerate(pher):
+        y = i * cell_size
+
+        for j, val in enumerate(row):
+            if val <= 0.02:
+                continue
+
+            norm = val / max_val
+            norm = math.sqrt(norm)  # perceptual scaling (VERY important)
+
+            color = pher_color(norm)
+
+            # alpha = visibility boost
+            alpha = int(40 + 180 * norm)
+
+            surf = pygame.Surface((cell_size, cell_size), pygame.SRCALPHA)
+            surf.fill((color[0], color[1], color[2], safe_int(alpha)))
+            screen.blit(surf, (j * cell_size, y))
+
+def safe_int(x):
+    if x is None or not math.isfinite(x):
+        return 0
+    return max(0, min(255, int(x)))
+
+
+def pher_color(t):
+    t = max(0.0, min(1.0, t))
+
+    if t < 0.33:
+        r = 0
+        g = 255 * (t / 0.33)
+        b = 255 - g
+    elif t < 0.66:
+        t2 = (t - 0.33) / 0.33
+        r = 255 * t2
+        g = 255
+        b = 0
+    else:
+        t2 = (t - 0.66) / 0.34
+        r = 255
+        g = 255 * (1.0 - t2)
+        b = 0
+
+    return (
+        safe_int(r),
+        safe_int(g),
+        safe_int(b),
+    )
 if __name__ == "__main__":
     main()
