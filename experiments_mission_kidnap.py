@@ -1,38 +1,9 @@
 from __future__ import annotations
-
-"""
-experiments_mission_kidnap.py
-==============================
-Impact of robot kidnapping on a 2‑robot Search & Rescue mission.
-
-Setup:
-  - Fixed map (seed=42), 6 victims (realistisch haalbaar in 180s)
-  - 2 robots: scout (linksboven) en rescuer (rechtsonder)
-  - N=10 trials per conditie
-
-Condities:
-  - baseline       : geen kidnap
-  - scout_kidnap   : scout gekidnapt op t=TELEPORT_T
-  - rescue_kidnap  : rescuer gekidnapt op t=TELEPORT_T
-
-Teleport: naar het midden van de map (550, 350) — ver van beide startposities.
-  Scout start:   ( 90, 120) → afstand tot teleport ≈ 530px
-  Rescuer start: (995, 600) → afstand tot teleport ≈ 560px
-
-Metrics:
-  • Rescue rate curve (snapshots)
-  • Detection rate curve (scout impact)
-  • Rescued voor vs na kidnap
-  • Mission completion rate + gemiddelde tijd
-  • Post-kidnap collisions + map exploration %
-"""
-
 import math
 import random
 import sys
 from copy import deepcopy
 from pathlib import Path
-
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -43,22 +14,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from world import (
-    SearchRescueWorld, distance, wrap_angle,
-    WIDTH, HEIGHT, DT, ROBOT_RADIUS,
-    BLUE, PURPLE,
-)
+from world import (SearchRescueWorld, WIDTH, HEIGHT, DT, ROBOT_RADIUS, BLUE, PURPLE)
 from controller import Genome
 from occupancy_grid import OccupancyGrid
 
-
-# ═══════════════════════════════════════════════════════════════════════════
 #  Robot wrapper
-# ═══════════════════════════════════════════════════════════════════════════
-
 class SimRobot:
-    """Thin wrapper around Robot met teleport() methode."""
-
+    """wrapper around Robot with teleport() methode -> for experiment purposes only!!!!!"""
     def __init__(self, robot_id: int, role: str, pose, color, rng_seed: int):
         from robot import Robot
         self.rng    = random.Random(rng_seed)
@@ -81,10 +43,9 @@ class SimRobot:
         self._robot.update(world, grid, [r._robot for r in robots], dt)
 
     def teleport(self, new_pose):
-        """Teleporteer robot en reset EKF-SLAM met foute prior.
-
-        Controller state wordt NIET gereset: de robot weet niet dat hij
-        verplaatst is en blijft sturen naar zijn oude targets.
+        """
+        teleport bot + reset EKF with high uncertainty and wrong prior
+        -> not aware of teleport 
         """
         self._robot.true_pose = np.array(new_pose, dtype=float)
 
@@ -113,33 +74,26 @@ class SimRobot:
         ekf.sigma          = new_sigma
         ekf.seen_landmarks = [False] * n_lm
 
-
-# ═══════════════════════════════════════════════════════════════════════════
 #  Experiment-parameters
-# ═══════════════════════════════════════════════════════════════════════════
-
 FIXED_SEED   = 42
-NUM_VICTIMS  = 10      # Genoeg werk voor beide robots gedurende de hele sim
+NUM_VICTIMS  = 10     
 SIM_DURATION = 180.0
-# t=15s: robots zijn net op gang (1-2 rescues), maar er is nog
-# 165s missie over. Kidnap verstoort terwijl er nog veel werk is.
-TELEPORT_T   = 15.0
+TELEPORT_T   = 15.0 #teleport after 15s
 N_SEEDS      = 30
 SNAPSHOT_T   = [15.0, 60.0, 120.0, 180.0]
 
-# Teleport-poses: reproduceerbaar via seed, ver van beide startposities.
-# Scout start:   ( 90, 120) linksboven
-# Rescuer start: (995, 600) rechtsonder
+# Teleport-poses
+# Scout start:   ( 90, 120) 
+# Rescuer start: (995, 600) 
 _TELEPORT_POOL = [
-    (550.0, 350.0,  0.5),    # midden
-    ( 90.0, 600.0,  0.0),    # linksonder  (ver van rescuer-start)
-    (995.0, 120.0,  math.pi),# rechtsboven (ver van scout-start)
+    (550.0, 350.0,  0.5),    
+    ( 90.0, 600.0,  0.0),    
+    (995.0, 120.0,  math.pi),
     (300.0, 500.0,  1.0),
     (750.0, 150.0, -1.0),
 ]
 
 def _pick_teleport_seeded(world, seed: int):
-    """Reproduceerbare teleport-pose op basis van trial-seed."""
     rng = random.Random(seed + 9999)
     pool = list(_TELEPORT_POOL)
     rng.shuffle(pool)
@@ -153,11 +107,6 @@ def _pick_teleport_seeded(world, seed: int):
         if not world.collides(x, y):
             return (x, y, rng.uniform(-math.pi, math.pi))
     return (550.0, 350.0, 0.0)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Een trial draaien
-# ═══════════════════════════════════════════════════════════════════════════
 
 def run_trial(condition: str, seed: int, world_template: SearchRescueWorld) -> dict:
     world = deepcopy(world_template)
@@ -190,7 +139,6 @@ def run_trial(condition: str, seed: int, world_template: SearchRescueWorld) -> d
 
     for step in range(steps):
         t = step * DT
-
         if step == teleport_s:
             rescued_at_kidnap  = world.num_rescued()
             detected_at_kidnap = world.num_detected()
@@ -242,12 +190,6 @@ def run_trial(condition: str, seed: int, world_template: SearchRescueWorld) -> d
         "rescued_after_kidnap":   max(0, final_res - rescued_at_kidnap),
         "detected_after_kidnap":  max(0, final_det - detected_at_kidnap),
     }
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Alle condities draaien
-# ═══════════════════════════════════════════════════════════════════════════
-
 CONDITIONS = ["baseline", "scout_kidnap", "rescue_kidnap"]
 LABELS = {
     "baseline":      "Baseline\n(no kidnap)",
@@ -255,22 +197,11 @@ LABELS = {
     "rescue_kidnap": "Rescuer\nkidnapped",
 }
 
-# Elke seed krijgt zijn eigen map — zo is er echte variatie tussen trials.
-# De map-seed is afgeleid van de trial-seed zodat alles reproduceerbaar blijft.
-# Alle drie condities gebruiken dezelfde map per seed (eerlijke vergelijking).
+#create variations between trials via seeded world gen
 def _make_world(seed: int) -> SearchRescueWorld:
-    return SearchRescueWorld(dynamic_block=False, seed=seed * 7 + 13,
-                             num_victims=NUM_VICTIMS)
+    return SearchRescueWorld(dynamic_block=False, seed=seed * 7 + 13, num_victims=NUM_VICTIMS)
 
-# Gebruik seed=0 alleen voor de header-print
-_sample_world = _make_world(0)
 TOTAL_VICTIMS = NUM_VICTIMS
-print(
-    f"Per-seed maps ({N_SEEDS} unique maps): {TOTAL_VICTIMS} victims each\n"
-    f"Kidnap @ t={TELEPORT_T:.0f}s (seeded pose per trial)  "
-    f"|  sim={SIM_DURATION:.0f}s  |  N={N_SEEDS} seeds\n"
-)
-
 results: dict[str, list[dict]] = {c: [] for c in CONDITIONS}
 
 for cond in CONDITIONS:
@@ -292,13 +223,8 @@ for cond in CONDITIONS:
             f"@180s={rescued_last}/{TOTAL_VICTIMS}  "
             f"complete={comp_str}"
         )
-    print()
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Aggregatie
-# ═══════════════════════════════════════════════════════════════════════════
-
+#Aggregation per condition
 def agg(cond: str) -> dict:
     trials = results[cond]
     n      = len(trials)
@@ -328,11 +254,7 @@ def agg(cond: str) -> dict:
 
 aggs = {c: agg(c) for c in CONDITIONS}
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Summary table
-# ═══════════════════════════════════════════════════════════════════════════
-
+#Summary table -> completely generated by AI
 W = 105
 print("=" * W)
 print(
@@ -361,16 +283,8 @@ for cond in CONDITIONS:
         f"{a['mean_collisions']:>7.1f}"
     )
 print("=" * W)
-print()
-print("  @kidnap = avg rescued at kidnap moment (sanity: gelijk voor alle condities)")
-print("  after   = avg rescued NA kidnap  <- belangrijkste metric")
-print("  det+    = avg nieuw gedetecteerd NA kidnap (scout-impact)")
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Plots (2 x 3)
-# ═══════════════════════════════════════════════════════════════════════════
-
+#Plots (2 x 3) -> also fully generated by AI
 C = {
     "baseline":      "#5A9E6F",
     "scout_kidnap":  "#4A7FB5",
