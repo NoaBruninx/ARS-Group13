@@ -632,7 +632,7 @@ class SearchRescueController:
                            key=lambda i: abs(CORRIDOR_X_POSITIONS[i] - fx))
             unvisited_bonus = 120.0 if zone_idx not in self.visited_zones else 0.0
             pheromone_penalty = grid.get_pheromone(fx, fy)
-            print(pheromone_penalty)
+            print(pheromone_penalty) 
             score = (0.70 * d + 90.0 * angle_penalty
                      - 0.45 * lateral_bonus
                      - 1.3 * cross_corridor_bonus

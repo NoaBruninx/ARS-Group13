@@ -60,7 +60,7 @@ class OccupancyGrid:
         self.cols = math.ceil(width / cell_size)
         self.rows = math.ceil(height / cell_size)
         self.log_odds = np.zeros((self.rows, self.cols), dtype=np.float32)
-        self.evidence = np.zeros((self.rows, self.cols), dtype=np.int16)
+        self.evidence = np.zeros((self.rows, self.cols), dtype=np.int32)
         # Persistent "ever seen" mask so explored_fraction never decreases.
         self._ever_seen = np.zeros((self.rows, self.cols), dtype=bool)
         self.pheromone = np.zeros((self.height, self.width), dtype=float)

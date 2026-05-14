@@ -126,7 +126,7 @@ class SearchRescueWorld:
         self,
         dynamic_block: bool = False,
         seed: Optional[int] = None,
-        num_victims: int = 15,
+        num_victims: int = 15, #8 value for experiment
     ):
         self.dynamic_block_enabled = dynamic_block
         self.blockage_active = False
