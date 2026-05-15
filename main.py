@@ -13,6 +13,7 @@ Keys:
     B      activate collapsed passage
     G      debug: show/hide full ground-truth damaged building map
     E      run short GENITOR evolution and load best genome
+    P      debug: show/hide pheromone map
     ESC    quit
 """
 
