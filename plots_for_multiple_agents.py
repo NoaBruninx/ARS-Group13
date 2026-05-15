@@ -8,7 +8,7 @@ from world import DT  # IMPORTANT
 
 
 
-df = pd.read_csv("results/scalability_timeseries.csv")
+df = pd.read_csv("result/scalability_timeseries.csv")
 df = df.sort_values(["step", "scouts", "rescue"])
 
 df["total_robots"] = df["scouts"] + df["rescue"]

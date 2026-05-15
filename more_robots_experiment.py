@@ -15,7 +15,7 @@ from robot import Robot
 from world import DT, BLUE, PURPLE, SearchRescueWorld
 
 
-RESULTS_DIR = Path("results")
+RESULTS_DIR = Path("result")
 RESULTS_DIR.mkdir(exist_ok=True)
 
 
@@ -265,7 +265,7 @@ class ScalabilityExperiment:
                 # SAVE FINAL RESULT NOW
                 # =========================
                 append_csv_row(
-                    "results/scalability_final.csv",
+                    "result/scalability_final.csv",
                     asdict(result)
                 )
 
@@ -273,7 +273,7 @@ class ScalabilityExperiment:
                 # SAVE SNAPSHOTS NOW
                 # =========================
                 append_snapshots(
-                    "results/scalability_timeseries.csv",
+                    "result/scalability_timeseries.csv",
                     [asdict(s) for s in snaps]
                 )
 
