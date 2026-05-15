@@ -72,7 +72,7 @@ class SimLogger:
 
 
 def load_best_or_default() -> Genome:
-    path = Path("results/best_genome.json")
+    path = Path("result/best_genome.json")
     if path.exists():
         try:
             import json
