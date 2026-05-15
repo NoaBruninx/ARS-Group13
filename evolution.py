@@ -33,6 +33,8 @@ class EvalResult:
     repeated_visits: int
     mean_localization_error: float
     robot_overlap_ratio: float
+    pheromone_changed_frontier_rate: float
+    frontier_pheromone_coverage: float
 
 @dataclass
 class ScoredGenome:
@@ -66,9 +68,17 @@ def evaluate_genome(
     one_robot: bool = False,
     dynamic_block: bool = False,
     cell_size: int = 20,
+    use_pheromone: bool = True,
 ) -> EvalResult:
     """Run one simulation episode and compute fitness."""
     world = SearchRescueWorld(dynamic_block=dynamic_block, seed=seed)
+
+    if not use_pheromone:
+        from dataclasses import asdict
+        d = asdict(genome)
+        d["pheromone_penalty_weight"] = 0.0
+        genome = Genome(**d)
+
     robots = make_robots(genome, seed=seed, one_robot=one_robot)
 
     if shared_map:
@@ -77,8 +87,13 @@ def evaluate_genome(
     else:
         maps = [OccupancyGrid(cell_size=cell_size) for _ in robots]
 
+    if not use_pheromone:
+        for m in maps:
+            m.pheromone_deposit = 0  # no deposit from controller
+
     localization_errors = []
     close_together_count = 0
+    unique_maps = list({id(m): m for m in maps}.values())
 
     for step in range(steps):
         if dynamic_block and step == steps // 2:
@@ -88,9 +103,10 @@ def evaluate_genome(
             robot.update(world, maps[i], robots, DT)
             localization_errors.append(robot.localization_error())
 
-        for m in {id(m): m for m in maps}.values():
-            m.decay_pheromones()
-            m.spread_pheromones()
+        if use_pheromone:
+            for m in unique_maps:
+                m.decay_pheromones()
+                m.spread_pheromones()
 
         if len(robots) > 1:
             if distance((robots[0].true_pose[0], robots[0].true_pose[1]),
@@ -104,6 +120,12 @@ def evaluate_genome(
     repeated_visits = sum(r.repeated_visits for r in robots)
     mean_loc_error = float(np.mean(localization_errors)) if localization_errors else 0.0
     overlap_ratio = close_together_count / max(1, steps)
+    phero_decisions = sum(getattr(r.controller, '_phero_decisions', 0) for r in robots)
+    phero_changed   = sum(getattr(r.controller, '_phero_changed',   0) for r in robots)
+    phero_covered   = sum(getattr(r.controller, '_phero_covered_frontiers', 0) for r in robots)
+    phero_total     = sum(getattr(r.controller, '_phero_total_frontiers',   0) for r in robots)
+    pheromone_changed_frontier_rate = phero_changed / max(phero_decisions, 1)
+    frontier_pheromone_coverage     = phero_covered / max(phero_total, 1)
 
     # Group-level fitness. The weights are intentionally simple and reportable.
     fitness = (
@@ -125,6 +147,8 @@ def evaluate_genome(
         repeated_visits=int(repeated_visits),
         mean_localization_error=float(mean_loc_error),
         robot_overlap_ratio=float(overlap_ratio),
+        pheromone_changed_frontier_rate=float(pheromone_changed_frontier_rate),
+        frontier_pheromone_coverage=float(frontier_pheromone_coverage),
     )
 
 # GENITOR-style evolutionary algorithm
@@ -180,6 +204,8 @@ def evolve_genitor(
             repeated_visits=int(round(np.mean([r.repeated_visits for r in results]))),
             mean_localization_error=float(np.mean([r.mean_localization_error for r in results])),
             robot_overlap_ratio=float(np.mean([r.robot_overlap_ratio for r in results])),
+            pheromone_changed_frontier_rate=float(np.mean([r.pheromone_changed_frontier_rate for r in results])),
+            frontier_pheromone_coverage=float(np.mean([r.frontier_pheromone_coverage for r in results])),
         )
 
     population: List[ScoredGenome] = []

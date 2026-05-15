@@ -616,6 +616,10 @@ class SearchRescueController:
             self.frontier_target = None
 
         best = None
+        best_no_phero = None
+        phero_nonzero = 0
+        total_candidates = 0
+
         for fx, fy in frontiers:
             d = distance((x, y), (fx, fy))
             if d < 45.0:
@@ -632,14 +636,32 @@ class SearchRescueController:
                            key=lambda i: abs(CORRIDOR_X_POSITIONS[i] - fx))
             unvisited_bonus = 120.0 if zone_idx not in self.visited_zones else 0.0
             pheromone_penalty = grid.get_pheromone(fx, fy)
-            print(pheromone_penalty) 
-            score = (0.70 * d + 90.0 * angle_penalty
-                     - 0.45 * lateral_bonus
-                     - 1.3 * cross_corridor_bonus
-                     - 1.5 * unvisited_bonus
-                     - self.g.pheromone_penalty_weight * pheromone_penalty)
+            score_no_phero = (0.70 * d + 90.0 * angle_penalty
+                              - 0.45 * lateral_bonus
+                              - 1.3 * cross_corridor_bonus
+                              - 1.5 * unvisited_bonus)
+            score = score_no_phero - self.g.pheromone_penalty_weight * pheromone_penalty
+
+            total_candidates += 1
+            if pheromone_penalty > 0:
+                phero_nonzero += 1
+            if best_no_phero is None or score_no_phero < best_no_phero[0]:
+                best_no_phero = (score_no_phero, d, heading, (fx, fy))
             if best is None or score < best[0]:
                 best = (score, d, heading, (fx, fy))
+
+        if not hasattr(self, '_phero_decisions'):
+            self._phero_decisions = 0
+            self._phero_changed = 0
+            self._phero_covered_frontiers = 0
+            self._phero_total_frontiers = 0
+
+        if best is not None and best_no_phero is not None:
+            self._phero_decisions += 1
+            if best[3] != best_no_phero[3]:
+                self._phero_changed += 1
+            self._phero_covered_frontiers += phero_nonzero
+            self._phero_total_frontiers += total_candidates
 
         if best is None:
             return 0.0, 0.0
