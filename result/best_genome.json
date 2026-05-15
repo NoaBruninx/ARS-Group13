@@ -1,0 +1,15 @@
+{
+  "forward_speed": 88.7987589343888,
+  "turn_speed": 1.5516182454410385,
+  "obstacle_threshold": 60.91660850792826,
+  "victim_attraction_weight": 0.0,
+  "frontier_weight": 0.9096579323873887,
+  "wall_avoidance_weight": 2.4115073253341546,
+  "robot_separation_weight": 2.510294423797511,
+  "visited_victim_penalty": 2.332198248346479,
+  "corridor_following_weight": 1.330409148256816,
+  "unknown_area_weight": 2.2605704549026107,
+  "corridor_switching_weight": 2.3472016816538845,
+  "pheromone_decay": 0.9834587108393987,
+  "pheromone_penalty_weight": 9398.166444801898
+}
