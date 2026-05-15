@@ -93,8 +93,6 @@ def create_simulation(genome: Genome, seed: int = 7):
     robots = [
         Robot(1, "scout", (90, 120, math.pi / 2), genome, BLUE, rng.randint(0, 10_000_000)),
         Robot(2, "rescue", (995, 600, -math.pi / 2), genome, PURPLE, rng.randint(0, 10_000_000)),
-        Robot(3, "scout", (995, 120, math.pi / 2), genome, BLUE, rng.randint(0, 10_000_000)),
-        Robot(4, "scout", (90, 600, -math.pi / 2), genome, PURPLE, rng.randint(0, 10_000_000)),
     ]
     return world, grid, robots
 
