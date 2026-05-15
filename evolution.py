@@ -5,28 +5,23 @@ GENITOR-inspired steady-state genetic algorithm.
 This is the evolutionary component for the damaged building scenario. It evolves
 interpretable real-valued controller parameters rather than a black-box model.
 """
-
 from __future__ import annotations
-
 import csv
 import json
 import math
 import random
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import List, Tuple
+from typing import Callable, List, Tuple
 
 import numpy as np
-
 from controller import Genome
 from occupancy_grid import OccupancyGrid
 from robot import Robot
 from world import BLUE, PURPLE, DT, SearchRescueWorld, distance
 
-
 RESULTS_DIR = Path("results")
 RESULTS_DIR.mkdir(exist_ok=True)
-
 
 @dataclass
 class EvalResult:
@@ -39,18 +34,12 @@ class EvalResult:
     mean_localization_error: float
     robot_overlap_ratio: float
 
-
 @dataclass
 class ScoredGenome:
     genome: Genome
     result: EvalResult
 
-
-# ---------------------------------------------------------------------
 # Team creation and evaluation
-# ---------------------------------------------------------------------
-
-
 def make_robots(genome: Genome, seed: int, one_robot: bool = False) -> List[Robot]:
     rng = random.Random(seed)
     if one_robot:
@@ -61,7 +50,6 @@ def make_robots(genome: Genome, seed: int, one_robot: bool = False) -> List[Robo
         Robot(2, "rescue", (995, 600, -math.pi / 2), genome, PURPLE, rng.randint(0, 10_000_000)),
         ]
 
-
 def merge_metrics_from_maps(maps: List[OccupancyGrid]) -> float:
     if len(maps) == 1:
         return maps[0].explored_fraction()
@@ -69,7 +57,6 @@ def merge_metrics_from_maps(maps: List[OccupancyGrid]) -> float:
     for m in maps:
         evidence_union |= m.evidence > 0
     return float(np.mean(evidence_union))
-
 
 def evaluate_genome(
     genome: Genome,
@@ -140,12 +127,7 @@ def evaluate_genome(
         robot_overlap_ratio=float(overlap_ratio),
     )
 
-
-# ---------------------------------------------------------------------
 # GENITOR-style evolutionary algorithm
-# ---------------------------------------------------------------------
-
-
 def genome_vector(g: Genome) -> np.ndarray:
     d = g.to_dict()
     return np.array([d[k] for k in sorted(d.keys())], dtype=float)
@@ -260,6 +242,80 @@ def evolve_genitor(
     print(json.dumps(best.genome.to_dict(), indent=2))
     return best.genome
 
+def evolve_vector(
+    objective,
+    n_dims: int,
+    lo: float,
+    hi: float,
+    population_size: int = 40,
+    evaluations: int = 20_000,
+    seed: int = 42,
+    sigma: float = 0.08,
+) -> Tuple[List[float], float, List[float]]:
+    """
+    Minimise a continuous objective over a real-valued vector domain.
+
+    Returns:
+        best_vector, best_fitness, history
+    where history contains the best-so-far fitness after each child evaluation.
+    """
+    rng = random.Random(seed)
+
+    def clip(vec: np.ndarray) -> np.ndarray:
+        return np.clip(vec, lo, hi)
+
+    def random_vector() -> np.ndarray:
+        return np.array([rng.uniform(lo, hi) for _ in range(n_dims)], dtype=float)
+
+    def evaluate(vec: np.ndarray) -> float:
+        return float(objective(vec.tolist()))
+
+    def tournament_select_vector(pop, k: int = 4) -> np.ndarray:
+        candidates = rng.sample(pop, k=min(k, len(pop)))
+        candidates.sort(key=lambda item: item[1])  # minimisation
+        return candidates[0][0].copy()
+
+    # Initial population: (vector, fitness)
+    population: List[Tuple[np.ndarray, float]] = []
+    for _ in range(population_size):
+        vec = random_vector()
+        fit = evaluate(vec)
+        population.append((vec, fit))
+
+    population.sort(key=lambda item: item[1])  # lower is better
+    best_vec = population[0][0].copy()
+    best_fit = population[0][1]
+
+    history: List[float] = [best_fit]
+    used_evaluations = population_size
+    domain_scale = hi - lo
+
+    while used_evaluations < evaluations:
+        parent_a = tournament_select_vector(population)
+        parent_b = tournament_select_vector(population)
+
+        alpha = rng.random()
+        child = alpha * parent_a + (1.0 - alpha) * parent_b
+
+        mutation = np.array([rng.gauss(0.0, sigma * domain_scale) for _ in range(n_dims)], dtype=float)
+        child = clip(child + mutation)
+
+        child_fit = evaluate(child)
+        used_evaluations += 1
+
+        population.sort(key=lambda item: item[1])
+        if child_fit < population[-1][1]:
+            population[-1] = (child, child_fit)
+
+        population.sort(key=lambda item: item[1])
+        if population[0][1] < best_fit:
+            best_vec = population[0][0].copy()
+            best_fit = population[0][1]
+
+        if used_evaluations % 500 == 0:
+            history.append(best_fit)
+
+    return best_vec.tolist(), float(best_fit), history
 
 if __name__ == "__main__":
     evolve_genitor(population_size=14, evaluations=40, steps_per_eval=900, episodes_per_genome=1)
