@@ -746,6 +746,3 @@ class SearchRescueController:
     def _front_distance(self, robot) -> float:
         sensor = robot.sensor_distances
         return min(sensor[0], sensor[1], sensor[-1])
-
-# Backward compatibility for older imports.
-GreenhouseController = SearchRescueController
