@@ -522,6 +522,3 @@ class SearchRescueWorld:
         pygame.draw.circle(screen, BLACK, (int(x), int(y)), 10, 1)
         pygame.draw.line(screen, BLACK, (int(x - 5), int(y)), (int(x + 5), int(y)), 1)
         pygame.draw.line(screen, BLACK, (int(x), int(y - 5)), (int(x), int(y + 5)), 1)
-
-
-GreenhouseWorld = SearchRescueWorld
