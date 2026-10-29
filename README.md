@@ -2,7 +2,7 @@
 
 ## Scenario
 
-This project implements the **Search and Rescue** application from the ARS assignment list. A heterogeneous team of robots explores a damaged building, maps the unknown environment, detects hidden victims, and sends a rescue robot to reach and assist them.
+This project implements the **Search and Rescue** application from the Autonomous Robotics Systems assignment list. A heterogeneous team of robots explores a damaged building, maps the unknown environment, detects hidden victims, and sends a rescue robot to reach and assist them.
 
 The damaged building contains collapsed internal walls, narrow corridors, cross-passages, fixed landmarks, hidden victim locations, and an optional collapsed passage. In the normal visualization mode, the map starts hidden. Only cells observed by the robots' distance sensors are revealed through the occupancy grid as the robots move. The robots must estimate their pose, build an occupancy grid map, and use the generated map for navigation.
 
