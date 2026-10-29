@@ -1,4 +1,4 @@
-# ARS Final Assignment - Search and Rescue
+# ARS Final Project - Search and Rescue
 
 ## Scenario
 
